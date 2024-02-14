@@ -1,0 +1,316 @@
+---
+title: "Bayesian Mixed Effects Models"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+#Installing Rstan
+#Sys.setenv(DOWNLOAD_STATIC_LIBV8 = 1) # only necessary for Linux without the nodejs library / headers
+#install.packages("rstan", repos = "https://cloud.r-project.org/", dependencies = TRUE)
+```
+
+
+```{r}
+#Uploading denim data
+library(rstan) 
+library(faraway)
+library(INLA)
+data(denim, package="faraway")
+help(denim)
+```
+
+Question 1 Page 272
+
+
+```{r}
+#Plotting Denim Data
+plot(waste~supplier, data=denim)
+```
+
+A) This plot shows that supplier 1 has the lowest mean, while supplier 5 has the largest mean. There are two obvious outliers, one from supplier 1 at around 42 waste and one from supplier 2 at around 70 waste. All of the variations seem fairly similar, however, this may just seem that way because the graph is so zoomed out because of these outliers. If the graph was shown with a smaller range then we may be able to see more differences among the graphs
+
+
+```{r}
+#Fitting one-way anova model using INLA
+formula <-waste ~ f(supplier, model="iid")
+result <-inla(formula, family="gaussian", data=denim)
+```
+
+
+```{r}
+summary(result)
+```
+
+B) The posterior mean for σˆ ε is 10, but the precision for supplier term is very large so we have a posterior mean for σα that is close to zero. The problem might lie within the default prior. 
+
+```{r}
+#Refitting the model with more informative priors
+
+sdres <-sd(denim$waste)
+pcprior <-list(prec = list(prior="pc.prec", param = c(3*sdres,0.01)))
+formula2 <-waste ~ f(supplier, model="iid", hyper = pcprior)
+result2 <-inla(formula2, family="gaussian", data=denim)
+result3 <-inla.hyperpar(result2)
+summary(result3) 
+```
+
+```{r}
+#Making density plots of the error and supplier SD posterior densities
+
+library(ggplot2)
+sigmaalpha <-inla.tmarginal(function(x) 1/sqrt(exp(x)),result3$ internal.marginals.hyperpar[[2]])
+sigmaepsilon <-inla.tmarginal(function(x) 1/sqrt(exp(x)),result3$ internal.marginals.hyperpar[[1]])
+
+ddf <-data.frame(rbind(sigmaalpha,sigmaepsilon),errterm=gl(2,1024, labels = c("alpha","epsilon")))
+ggplot(ddf, aes(x,y, linetype=errterm))+geom_line()+xlab("waste")+ ylab("density")+xlim(-10,20)
+
+rdf <-do.call(rbind.data.frame, result3$marginals.random$supplier)
+rdf2 <-cbind(supplier=gl(5,nrow(rdf)/5,labels=letters[1:5]),rdf)
+ggplot(rdf2, aes(x=x,y=y,linetype=supplier))+geom_line()+xlim(-10, 10)+xlab("waste")+ylab("density")
+
+```
+
+```{r}
+#Calculating summaries of the posteriors from the model fit
+
+mu = data.frame(result3$summary.fixed)[-c(7)]
+alphaEpsilon = data.frame(result3$summary.hyperpar)
+suppliers = data.frame(result3$summary.random)[-c(1,8)]
+colnames(suppliers) = c('mean', 'sd', '0.025quant', '0.05quant', '0.975quant', 'mode')
+mu
+alphaEpsilon
+suppliers
+```
+
+D) The summaries for the posterior fit are calculated above. They are:
+
+(Intercept)	mean: 7.059985	sd: 1.568626	0.025quant: 3.966645	0.5quant: 7.046149	0.975 quant: 10.24382	mode: 7.049322
+Precision for the Gaussian observations	mean: 0.01062529	sd: 0.001555229	0.025quant: 0.007848004	0.5quant: 0.01052854	0.975quant: 0.01395678	mode: 0.01036569
+Precision for supplier	mean: 1.29167189	sd: 4.977088696	0.025quant: 0.025127470	0.5quant: 0.33909143	0.975quant: 8.47406889	mode: 0.05700944
+
+Supplier 1: mean: -1.1692661	sd: 1.889639	0.025quant: -5.555812	0.5quant: -0.8324344	0.975 quant: 2.032706	mode: -0.24556157
+Supplier 2: mean: 0.7790652	sd: 1.811243	0.025quant: -2.562420	0.5quant: 0.5179991	0.975 quant: 4.879190	mode: -0.03650972
+Supplier 3: mean: -0.9054926	sd: 1.840422	0.025quant: -5.235783	0.5quant: -0.5091134	0.975 quant: 2.278671	mode: -0.07294306
+Supplier 4: mean: 0.1671518	sd: 1.781031	0.025quant: -3.514007	0.5quant: 0.1051166	0.975 quant: 3.988034	mode: 0.12689260
+Supplier 5: mean: 1.1572661	sd: 2.005569	0.025quant: -2.192662	0.5quant: 0.7377304	0.975 quant: 5.916630	mode: 0.20466137
+
+```{r}
+#Calculating Credible Intervals
+1/sqrt(0.00785)
+1/sqrt(0.01396)
+1/sqrt(0.02513)
+1/sqrt(8.474)
+```
+
+E) 95% Credible Intervals:
+
+Alpha Credible Interval: [1/sqrt(0.00785), 1/sqrt(0.01396)] = [11.287, 8.464]
+Epsilon Credible Interval: [1/sqrt(0.02513), 1/sqrt(8.474)] = [6.308, 0.344]
+
+```{r}
+#Calculating posterior modes for errors
+1/sqrt(0.01036569)
+1/sqrt(0.05700944)
+```
+
+E) Posterior Modes for Error and Supplier SD's:
+
+Alpha	mode: 1/sqrt(0.01036569) = 9.822
+Epsilon	mode: 1/sqrt(0.05700944) = 4.188
+
+Supplier 1: mode: -0.24556157
+Supplier 2: mode: -0.03650972
+Supplier 3: mode: -0.07294306
+Supplier 4: mode: 0.12689260
+Supplier 5: mode: 0.20466137
+
+```{r}
+#Calculating posterior means for errors
+1/sqrt(0.01062529)
+1/sqrt(1.29167189)
+```
+
+
+E) Posterior Means for Error and Supplier SD's: 
+
+Alpha: mean: 1/sqrt(0.01062529) = 9.9701
+Epsilon: mean: 1/sqrt(1.29167189) = 0.880
+
+Supplier 1: mean: -1.1692661	
+Supplier 2: mean: 0.7790652	
+Supplier 3: mean: -0.9054926	
+Supplier 4: mean: 0.1671518	
+Supplier 5: mean: 1.1572661
+
+The posterior modes, on average, are closer to 0 than the posterior means. The means seem to be on a more extreme end. The only exception for this is the SDepsilon. The mode for this is considerably larger than the mean. 
+
+```{r}
+#Removing the 2 outliers
+denim2 <- denim[-c(82, 87), ]
+```
+
+```{r}
+#Repeating analysis
+
+sdres2 <-sd(denim2$waste)
+pcprior2 <-list(prec = list(prior="pc.prec", param = c(3*sdres2,0.01)))
+formula3 <-waste ~ f(supplier, model="iid", hyper = pcprior2)
+result4 <-inla(formula3, family="gaussian", data=denim2)
+result5 <-inla.hyperpar(result4)
+summary(result5) 
+```
+
+```{r}
+library(ggplot2)
+sigmaalpha2 <-inla.tmarginal(function(x) 1/sqrt(exp(x)),result5$ internal.marginals.hyperpar[[2]])
+sigmaepsilon2 <-inla.tmarginal(function(x) 1/sqrt(exp(x)),result5$ internal.marginals.hyperpar[[1]])
+
+ddf2 <-data.frame(rbind(sigmaalpha2,sigmaepsilon2),errterm=gl(2,1024, labels = c("alpha","epsilon")))
+ggplot(ddf2, aes(x,y, linetype=errterm))+geom_line()+xlab("waste")+ ylab("density")+xlim(-10,20)
+
+rdf3 <-do.call(rbind.data.frame, result5$marginals.random$supplier)
+rdf4 <-cbind(supplier=gl(5,nrow(rdf)/5,labels=letters[1:5]),rdf3)
+ggplot(rdf4, aes(x=x,y=y,linetype=supplier))+geom_line()+xlim(-10, 10)+xlab("waste")+ylab("density")
+```
+
+
+```{r}
+mu2 = data.frame(result5$summary.fixed)[-c(7)]
+alphaEpsilon2 = data.frame(result5$summary.hyperpar)
+suppliers2 = data.frame(result5$summary.random)[-c(1,8)]
+colnames(suppliers2) = c('mean', 'sd', '0.025quant', '0.05quant', '0.975quant', 'mode')
+mu2
+alphaEpsilon2
+suppliers2
+```
+
+F) A very noticeable different that jumps out at me are the posterior means and modes calculated above. These are much closer (lower range) than when the outliers were included in the modeling. The mean and mode numbers are more similar than before. 
+
+The graphs also look much different. The shape of the error term graph is a little similar to the first graph, however, the supplier densities are much more spread out and distinct. In the original graph it is hard to distinguish amongst the suppliers, but in the graph without outliers, we can seemore distinct averages and standard deviations in the density.
+
+The results for the inla formula also show a slightly smaller "precision for supplier" mean.
+
+Question 2 Page 272
+
+```{r}
+#Fitting one-way ANOVA model using STAN
+library(rstan)
+denimdata <-list(N=95, J=5, response=denim$waste, predictor=as.numeric(denim$supplier))
+fit <-stan(file = "oneway.stan", data = denimdata)
+```
+
+
+```{r}
+#Diagnostic Plots for the three parameters: the supplier and error effects
+traceplot(fit, pars="mu", inc_warmup = FALSE) 
+traceplot(fit, pars="sigmaalpha", inc_warmup = FALSE) 
+traceplot(fit, pars="sigmaepsilon", inc_warmup = FALSE) 
+```
+```{r}
+fit
+```
+
+B) The posterior mean, 95% credible intervals, and effective sample size for:
+
+Supplier: 7.15; [3.64, 11.03]; 587
+SigmaAlpha: 2.59; [0.09, 8.90]; 518
+SigmaEpsilon: 9.98; [8.67, 11.53]; 2122
+
+```{r}
+#Plotting posterior densities of supplier and error effects
+library(reshape2)
+library(ggplot2)
+postsig = extract(fit, pars=c("sigmaalpha","sigmaepsilon"))
+ref1 = melt(postsig,value.name="waste")
+ggplot(data=ref1,aes(x=waste, linetype=L1)) + geom_density()+xlim(-20,20) + scale_linetype(name="SD",labels=c("supplier","error"))
+```
+
+```{r}
+#Estimating the probability that the supplier SD is larger than the error SD
+mean(ref1[,1] > ref1[,2]) 
+```
+
+C) The probability that the supplier SD is larger than the error SD is 99.85%.
+
+```{r}
+#Plotting the posterior distributions for the five suppliers
+opre <-rstan::extract(fit, pars="a") 
+ref <-melt(opre, value.name="waste")
+ggplot(data=ref,aes(x=waste, linetype=factor(Var2)))+geom_density()+scale_linetype(name="supplier",labels=LETTERS[1:5])
+```
+
+```{r}
+#Estimating the probability that the best supplier is better than the worst supplier
+mean(ref[ref[,2]==1,3]>ref[ref[,2]==5,3])
+```
+
+
+D) Supplier 1 seems to produce the least waste, while supplier 5 seems to produce the most. The probability that the best supplier SD is better than the worst supplier SD is 19.2%.
+
+
+```{r}
+#Plotting data to view outliers 
+plot(denim)
+```
+
+```{r}
+#Repeating Full Analysis with outliers removed
+
+denimdata2 <-list(N=93, J=5, response=denim2$waste, predictor=as.numeric(denim2$supplier))
+fit2 <-stan(file = "oneway.stan", data = denimdata2)
+```
+
+```{r}
+fit2
+```
+
+E) The posterior mean, 95% credible intervals, and effective sample size for the new model:
+
+Supplier: 6.16; [2.44, 9.82]; 720
+SigmaAlpha: 3.53; [0.60, 9.14]; 616
+SigmaEpsilon: 6.23; [5.35, 7.33]; 2112
+
+```{r}
+#Plotting posterior densities of supplier and error effects
+library(reshape2)
+library(ggplot2)
+postsig2 = extract(fit2, pars=c("sigmaalpha","sigmaepsilon"))
+ref3 = melt(postsig2,value.name="waste")
+ggplot(data=ref3,aes(x=waste, linetype=L1)) + geom_density()+xlim(-20,20) + scale_linetype(name="SD",labels=c("supplier","error"))
+
+#Estimating the probability that the supplier SD is larger than the error SD
+mean(ref3[,1] > ref3[,2])
+```
+
+E) The probability that the supplier SD is larger than the error SD is 99.91%, which is very similar to the model with the outliers included.
+
+The graph is showing similar shaped supplier and error posterior density graphs, however, the peaks are much closer together.
+
+```{r}
+#Plotting the posterior distributions for the five suppliers
+opre2 <-rstan::extract(fit2, pars="a") 
+ref4 <-melt(opre2, value.name="waste")
+ggplot(data=ref4,aes(x=waste, linetype=factor(Var2)))+geom_density()+scale_linetype(name="supplier",labels=LETTERS[1:5])
+
+```
+
+```{r}
+#Estimating the probability that the best supplier is better than the worst supplier
+mean(ref4[ref4[,2]==1,3]>ref4[ref4[,2]==5,3])
+```
+
+
+E) This plot also shows much more distinct differences in densities between suppliers. However, supplier 1 is still the best and supplier 5 is the worst. In the graph including the outliers, the densities were much closer together, which made it hard to tell which suppliers were the best/worst. 
+
+The probability that supplier 1 standard deviation is greater than supplier 5 is also now reduced to 1.15%. This is much smaller.
+
+
+
